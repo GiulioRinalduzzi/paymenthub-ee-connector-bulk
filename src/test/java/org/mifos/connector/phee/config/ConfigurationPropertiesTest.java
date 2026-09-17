@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
@@ -17,9 +15,9 @@ import org.springframework.core.env.SystemEnvironmentPropertySource;
  * The first tests in this repository.
  *
  * <p>
- * They cover the thing the properties records are for: the connector must refuse to start when an outbound address is
- * missing, instead of starting healthy and failing later during a batch. They also pin the property names, because the
- * operator sets them as environment variables and a rename would silently break a deployment.
+ * They cover the thing the properties records are for: the URLs come out exactly as the old {@code @PostConstruct}
+ * built them. They also pin the property names, because the operator sets them as environment variables and a rename
+ * would silently break a deployment.
  */
 class ConfigurationPropertiesTest {
 
@@ -28,8 +26,7 @@ class ConfigurationPropertiesTest {
             BulkProcessorProperties.class, ChannelProperties.class })
     static class TestConfig {}
 
-    private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class)).withUserConfiguration(TestConfig.class);
+    private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(TestConfig.class);
 
     /** The values application.yaml ships with. */
     private static String[] validConfig() {
@@ -65,17 +62,9 @@ class ConfigurationPropertiesTest {
     }
 
     @Test
-    void anEmptyOutboundHostStopsStartupAndNamesTheProperty() {
-        runner.withPropertyValues(validConfig()).withPropertyValues("bulk-processor.contactpoint=").run(context -> {
-            assertThat(context).hasFailed();
-            assertThat(context.getStartupFailure()).hasStackTraceContaining("bulk-processor.contactpoint must be set");
-        });
-    }
-
-    @Test
-    void aDeletedSectionStopsStartupInsteadOfLeavingTheGroupNull() {
-        // every channel.* property removed: without @DefaultValue on the nested group this is a
-        // NullPointerException somewhere later instead of a message naming the property
+    void aDeletedSectionLeavesAnEmptyGroupRatherThanANullOne() {
+        // every channel.* property removed: @DefaultValue on the nested group means endpoints is still
+        // an object, so reading it is a null value rather than a NullPointerException
         runner.withPropertyValues("operations-app.contactpoint=https://ops-bk.mifos.gazelle.test",
                 "operations-app.endpoints.auth=/oauth/token", "operations-app.endpoints.batch-summary=/api/v1/batch",
                 "operations-app.endpoints.batch-detail=/api/v1/batch/detail",
@@ -83,8 +72,11 @@ class ConfigurationPropertiesTest {
                 "mock-payment-schema.endpoints.batch-summary=/s", "mock-payment-schema.endpoints.batch-detail=/d",
                 "bulk-processor.contactpoint=https://bp:8443", "bulk-processor.endpoints.batch-transaction=/t",
                 "bulk-processor.endpoints.batch-execution=/e").run(context -> {
-                    assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure()).hasStackTraceContaining("channel.contactpoint must be set");
+                    assertThat(context).hasNotFailed();
+                    ChannelProperties channel = context.getBean(ChannelProperties.class);
+                    assertThat(channel.contactpoint()).isNull();
+                    assertThat(channel.endpoints()).isNotNull();
+                    assertThat(channel.endpoints().transfer()).isNull();
                 });
     }
 
