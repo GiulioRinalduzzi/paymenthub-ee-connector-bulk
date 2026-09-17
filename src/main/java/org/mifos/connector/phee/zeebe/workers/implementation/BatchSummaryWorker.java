@@ -10,10 +10,11 @@ import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactory;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
-import org.mifos.connector.phee.config.MockPaymentSchemaConfig;
+import org.mifos.connector.phee.config.MockPaymentSchemaProperties;
 import org.mifos.connector.phee.schema.BatchDTO;
 import org.mifos.connector.phee.zeebe.workers.BaseWorker;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -54,8 +55,11 @@ public class BatchSummaryWorker extends BaseWorker {
     @Value("${config.completion-threshold-check.max-retry-count}")
     public int maxRetryCount;
     @Autowired
-    public MockPaymentSchemaConfig mockPaymentSchemaConfig;
-    private ObjectMapper objectMapper = new ObjectMapper();
+    public MockPaymentSchemaProperties mockPaymentSchemaProperties;
+
+    @Autowired
+    @Qualifier("trustAllRestTemplate")
+    private RestTemplate restTemplate;
 
     @Override
     public void setup() {
@@ -112,25 +116,13 @@ public class BatchSummaryWorker extends BaseWorker {
     }
 
     public BatchDTO callApi(String batchId, String tenant) throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException {
-        RestTemplate restTemplate = new RestTemplate();
-        CloseableHttpClient httpClient = HttpClients.custom()
-                // HttpClient 5: TLS config moved onto the connection manager
-                .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
-                        .setSSLSocketFactory(new SSLConnectionSocketFactory(
-                                new SSLContextBuilder().loadTrustMaterial(null, (certificate, authType) -> true).build(),
-                                NoopHostnameVerifier.INSTANCE))
-                        .build())
-                .build();
-        restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory(httpClient));
-
-
         // Set headers
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Platform-TenantId", tenant);
 
         // Construct URL
-        String apiUrl = mockPaymentSchemaConfig.mockPaymentSchemaContactPoint + "/batches/" + batchId + "/summary";
+        String apiUrl = mockPaymentSchemaProperties.contactpoint() + "/batches/" + batchId + "/summary";
 
         // Construct request entity with headers
         HttpEntity<String> requestEntity = new HttpEntity<>(headers);

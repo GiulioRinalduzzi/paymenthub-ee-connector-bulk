@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.camel.Exchange;
 import org.apache.camel.support.DefaultExchange;
 import org.mifos.connector.phee.camel.routes.RouteId;
-import org.mifos.connector.phee.config.MockPaymentSchemaConfig;
+import org.mifos.connector.phee.config.MockPaymentSchemaProperties;
 import org.mifos.connector.phee.schema.BatchDetailResponse;
 import org.mifos.connector.phee.schema.Transaction;
 import org.mifos.connector.phee.schema.TransactionResult;
@@ -43,8 +43,10 @@ import static org.mifos.connector.phee.zeebe.workers.Worker.BATCH_DETAILS;
 @Component
 public class BatchDetailWorker extends BaseWorker {
     @Autowired
-    public MockPaymentSchemaConfig mockPaymentSchemaConfig;
-    private ObjectMapper objectMapper = new ObjectMapper();
+    public MockPaymentSchemaProperties mockPaymentSchemaProperties;
+
+    @Autowired
+    private RestTemplate restTemplate;
 
     @Override
     public void setup() {
@@ -101,8 +103,6 @@ public class BatchDetailWorker extends BaseWorker {
     }
 
     public BatchDetailResponse callApi(String batchId, int pageNo, int pageSize, String tenant) {
-        // Set up the RestTemplate
-        RestTemplate restTemplate = new RestTemplate();
 
         // Set headers
         HttpHeaders headers = new HttpHeaders();
@@ -111,7 +111,7 @@ public class BatchDetailWorker extends BaseWorker {
 
         // Construct URL with query parameters
         String apiUrl = String.format("%s?%s=%s&%s=%s&%s=%s",
-                mockPaymentSchemaConfig.batchDetailUrl,
+                mockPaymentSchemaProperties.batchDetailUrl(),
                 BATCH_ID, batchId,
                 PAGE_NO, pageNo,
                 PAGE_SIZE, pageSize);

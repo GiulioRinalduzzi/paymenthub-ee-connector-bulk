@@ -3,8 +3,8 @@ package org.mifos.connector.phee.camel.routes;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.model.dataformat.JsonLibrary;
-import org.mifos.connector.phee.config.MockPaymentSchemaConfig;
-import org.mifos.connector.phee.config.OperationsAppConfig;
+import org.mifos.connector.phee.config.MockPaymentSchemaProperties;
+import org.mifos.connector.phee.config.OperationsAppProperties;
 import org.mifos.connector.phee.schema.BatchDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -34,10 +34,10 @@ public class BatchSummaryRoute extends BaseRouteBuilder {
     private int completionThreshold;
 
     @Autowired
-    public MockPaymentSchemaConfig mockPaymentSchemaConfig;
+    public MockPaymentSchemaProperties mockPaymentSchemaProperties;
 
     @Autowired
-    public OperationsAppConfig operationsAppConfig;
+    public OperationsAppProperties operationsAppProperties;
 
     @Value("${tenant}")
     public String tenant;
@@ -64,7 +64,7 @@ public class BatchSummaryRoute extends BaseRouteBuilder {
 
 // Define a route to call operations-app for batch summary
         from("direct:callBatchSummaryEndpoint")
-                .to(operationsAppConfig.batchSummaryUrl + "/${exchangeProperty." + BATCH_ID + "}")
+                .to(operationsAppProperties.batchSummaryUrl() + "/${exchangeProperty." + BATCH_ID + "}")
                 .log(LoggingLevel.INFO, "Batch summary API response from operations-app: \n\n ${body}");
 
 

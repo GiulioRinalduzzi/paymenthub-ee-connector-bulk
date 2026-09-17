@@ -1,8 +1,6 @@
 package org.mifos.connector.phee.camel.routes;
 
 public enum RouteId {
-    INIT_BATCH_TRANSFER("direct:init-batch-transfer"),
-
     BATCH_SUMMARY("direct:batch-summary"),
 
     BATCH_DETAIL("direct:batch-detail"),

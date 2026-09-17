@@ -14,6 +14,8 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.ssl.SSLContextBuilder;
 import org.mifos.connector.common.util.JsonWebSignature;
+import org.mifos.connector.phee.config.BulkProcessorProperties;
+import org.mifos.connector.phee.config.ChannelProperties;
 import org.mifos.connector.phee.config.PaymentModeConfiguration;
 import org.mifos.connector.phee.config.PaymentModeMapping;
 import org.mifos.connector.phee.file.FileTransferService;
@@ -22,6 +24,7 @@ import org.mifos.connector.phee.schema.TransactionResult;
 import org.mifos.connector.phee.utils.Utils;
 import org.mifos.connector.phee.zeebe.workers.BaseWorker;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -38,6 +41,7 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -69,20 +73,15 @@ public class BatchTransferWorker extends BaseWorker {
     @Value("${config.completion-threshold-check.wait-timer}")
     private String waitTimer;
 
-    @Value("${bulk-processor.contactpoint}")
-    private String bulkProcessorContactPoint;
+    @Autowired
+    private BulkProcessorProperties bulkProcessorProperties;
 
-    @Value("${bulk-processor.endpoints.batch-transaction}")
-    private String batchTransactionEndpoint;
+    @Autowired
+    private ChannelProperties channelProperties;
 
-    @Value("${bulk-processor.endpoints.batch-execution}")
-    private String batchExecutionEndpoint;
-
-    @Value("${channel.contactpoint}")
-    private String channelContactPoint;
-
-    @Value("${channel.endpoints.transfer}")
-    private String channelTransferEndpoint;
+    @Autowired
+    @Qualifier("trustAllRestTemplate")
+    private RestTemplate restTemplate;
 
     @Value("${json_web_signature.privateKey}")
     private String privateKeyString;
@@ -91,18 +90,15 @@ public class BatchTransferWorker extends BaseWorker {
     private PaymentModeConfiguration paymentModeConfiguration;
 
     @Autowired
-    private org.mifos.connector.phee.config.MockPaymentSchemaConfig mockPaymentSchemaConfig;
+    private org.mifos.connector.phee.config.MockPaymentSchemaProperties mockPaymentSchemaProperties;
 
     @Value("${tenant}")
     public String tenant;
 
-    @Autowired
-    private CsvMapper csvMapper;
-
     @Override
     public void setup() {
         logger.info("## generating " + INIT_BATCH_TRANSFER + "zeebe worker");
-        logger.info("## Channel config - contactpoint: {}, endpoint: {}", channelContactPoint, channelTransferEndpoint);
+        logger.info("## Channel config - transfer url: {}", channelProperties.transferUrl());
         newWorker(INIT_BATCH_TRANSFER, (client, job) ->{
             Map<String, Object> variables = job.getVariablesAsMap();
             String debulkingDfspId = variables.get(DEBULKINGDFSPID).toString();
@@ -113,7 +109,7 @@ public class BatchTransferWorker extends BaseWorker {
             String fileName = (String) variables.get(FILE_NAME);
 
             byte[] bytes = fileTransferService.downloadFileAsStream((String) variables.get(FILE_NAME), bucketName);
-            String csvData = new String(bytes);
+            String csvData = new String(bytes, StandardCharsets.UTF_8);
             List<Transaction> transactionList = parseCSVDataToList(csvData);
             String rootDirectory = System.getProperty("user.dir");
 
@@ -207,7 +203,7 @@ public class BatchTransferWorker extends BaseWorker {
 
     private void writeCsvToFile(String csvData, String filePath) throws IOException {
         Path path = Paths.get(filePath);
-        Files.write(path, csvData.getBytes());
+        Files.write(path, csvData.getBytes(StandardCharsets.UTF_8));
     }
 
     private void uploadResultFileWithError(List<Transaction> transactionList, String resultFile) {
@@ -227,7 +223,7 @@ public class BatchTransferWorker extends BaseWorker {
     }
     public String invokeBatchTransactionApi(String filename, String csvData, String filePath, String clientCorrelationId, String tenant, String payeeDfspId) throws Exception {
         String signature = generateSignature(clientCorrelationId, tenant, csvData, true, filePath);
-        String batchTransactionUrl = bulkProcessorContactPoint + batchTransactionEndpoint;
+        String batchTransactionUrl = bulkProcessorProperties.batchTransactionUrl();
         String url = UriComponentsBuilder.fromHttpUrl(batchTransactionUrl)
                 .queryParam("type", "csv").toUriString();
 
@@ -236,23 +232,6 @@ public class BatchTransferWorker extends BaseWorker {
     }
 
 
-    private RestTemplate createRestTemplate() throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException {
-        RestTemplate restTemplate = new RestTemplate();
-        CloseableHttpClient httpClient = createHttpClient();
-        restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory(httpClient));
-        return restTemplate;
-    }
-
-    private CloseableHttpClient createHttpClient() throws NoSuchAlgorithmException, KeyStoreException, KeyManagementException {
-        return HttpClients.custom()
-                // HttpClient 5: TLS config moved onto the connection manager
-                .setConnectionManager(PoolingHttpClientConnectionManagerBuilder.create()
-                        .setSSLSocketFactory(new SSLConnectionSocketFactory(
-                                new SSLContextBuilder().loadTrustMaterial(null, (certificate, authType) -> true).build(),
-                                NoopHostnameVerifier.INSTANCE))
-                        .build())
-                .build();
-    }
 
     private HttpEntity<MultiValueMap<String, Object>> createHttpEntity(String filename, String csvData, String filePath, String clientCorrelationId, String tenant, String payeeDfspId, String signature) throws IOException {
         HttpHeaders headers = new HttpHeaders();
@@ -274,11 +253,9 @@ public class BatchTransferWorker extends BaseWorker {
     }
 
     private String executeBatchTransactionRequest(String url, HttpEntity<MultiValueMap<String, Object>> requestEntity) throws JsonProcessingException, NoSuchAlgorithmException, KeyStoreException, KeyManagementException {
-        RestTemplate restTemplate = createRestTemplate();
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, requestEntity, String.class);
 
         String batchTransactionResponse = response != null ? response.getBody() : null;
-        ObjectMapper objectMapper = new ObjectMapper();
         JsonNode jsonNode = objectMapper.readTree(batchTransactionResponse);
         return jsonNode.get("PollingPath").asText().split("/")[3];
     }
@@ -370,7 +347,7 @@ public class BatchTransferWorker extends BaseWorker {
     private void registerClosedloopSummary(String batchId, String tenant, long total, int successCount,
             int failureCount, double totalAmt, double completedAmt, double failedAmt) {
         try {
-            String url = mockPaymentSchemaConfig.mockPaymentSchemaContactPoint + "/batches/" + batchId + "/summary";
+            String url = mockPaymentSchemaProperties.contactpoint() + "/batches/" + batchId + "/summary";
 
             Map<String, Object> body = new HashMap<>();
             body.put("batchId", batchId);
@@ -391,11 +368,9 @@ public class BatchTransferWorker extends BaseWorker {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Platform-TenantId", tenant);
 
-            ObjectMapper objectMapper = new ObjectMapper();
-            HttpEntity<String> requestEntity = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
+                HttpEntity<String> requestEntity = new HttpEntity<>(objectMapper.writeValueAsString(body), headers);
 
-            RestTemplate restTemplate = createRestTemplate();
-            restTemplate.exchange(url, HttpMethod.PUT, requestEntity, Void.class);
+                restTemplate.exchange(url, HttpMethod.PUT, requestEntity, Void.class);
             logger.info("## CLOSEDLOOP - Registered summary with mock-payment-schema: batchId={}, total={}, success={}, failed={}",
                     batchId, total, successCount, failureCount);
         } catch (Exception e) {
@@ -443,7 +418,7 @@ public class BatchTransferWorker extends BaseWorker {
 
     private boolean invokeChannelTransfer(Transaction transaction, String batchId, String tenant) {
         try {
-            String transferUrl = channelContactPoint + channelTransferEndpoint;
+            String transferUrl = channelProperties.transferUrl();
             logger.info("## CLOSEDLOOP - Channel transfer URL: {}", transferUrl);
 
             HttpHeaders headers = new HttpHeaders();
@@ -454,8 +429,7 @@ public class BatchTransferWorker extends BaseWorker {
 
 
             // Build transfer request body with proper MoneyData structure
-            ObjectMapper objectMapper = new ObjectMapper();
-            Map<String, Object> requestPayload = new HashMap<>();
+                Map<String, Object> requestPayload = new HashMap<>();
 
             // Create MoneyData object for amount
             Map<String, String> amountData = new HashMap<>();
@@ -471,8 +445,7 @@ public class BatchTransferWorker extends BaseWorker {
 
             HttpEntity<String> requestEntity = new HttpEntity<>(requestBody, headers);
 
-            RestTemplate restTemplate = createRestTemplate();
-            ResponseEntity<String> response = restTemplate.exchange(
+                ResponseEntity<String> response = restTemplate.exchange(
                 transferUrl, HttpMethod.POST, requestEntity, String.class);
 
             logger.info("## CLOSEDLOOP - Channel transfer response status: {} for transaction: {}",
@@ -499,7 +472,7 @@ public class BatchTransferWorker extends BaseWorker {
 
     private void reportExecutionStatus(Transaction transaction, String batchId, String tenant, boolean success) {
         try {
-            String executionUrl = bulkProcessorContactPoint + batchExecutionEndpoint;
+            String executionUrl = bulkProcessorProperties.batchExecutionUrl();
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -516,8 +489,7 @@ public class BatchTransferWorker extends BaseWorker {
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
-            RestTemplate restTemplate = createRestTemplate();
-            ResponseEntity<String> response = restTemplate.exchange(
+                ResponseEntity<String> response = restTemplate.exchange(
                 executionUrl, HttpMethod.POST, requestEntity, String.class);
 
             logger.info("## CLOSEDLOOP - Execution status reported for transaction {}: {}",

@@ -5,7 +5,7 @@ import io.camunda.zeebe.client.ZeebeClient;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.model.RouteDefinition;
-import org.mifos.connector.phee.config.OperationsAppConfig;
+import org.mifos.connector.phee.config.OperationsAppProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +23,7 @@ public abstract class BaseRouteBuilder extends RouteBuilder {
     public ObjectMapper objectMapper;
 
     @Autowired
-    public OperationsAppConfig operationsAppConfig;
+    public OperationsAppProperties operationsAppProperties;
 
     @Autowired
     ZeebeClient zeebeClient;

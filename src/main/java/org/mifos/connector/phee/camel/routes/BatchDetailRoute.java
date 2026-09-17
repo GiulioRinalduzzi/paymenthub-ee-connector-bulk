@@ -3,8 +3,8 @@ package org.mifos.connector.phee.camel.routes;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
-import org.mifos.connector.phee.config.MockPaymentSchemaConfig;
-import org.mifos.connector.phee.config.OperationsAppConfig;
+import org.mifos.connector.phee.config.MockPaymentSchemaProperties;
+import org.mifos.connector.phee.config.OperationsAppProperties;
 import org.mifos.connector.phee.schema.BatchDetailResponse;
 import org.mifos.connector.phee.schema.Transaction;
 import org.mifos.connector.phee.schema.TransactionResult;
@@ -49,12 +49,11 @@ public class BatchDetailRoute extends BaseRouteBuilder {
     public String tenant;
 
     @Autowired
-    public MockPaymentSchemaConfig mockPaymentSchemaConfig;
+    public MockPaymentSchemaProperties mockPaymentSchemaProperties;
 
     @Autowired
-    public OperationsAppConfig operationsAppConfig;
+    public OperationsAppProperties operationsAppProperties;
 
-    private ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void configure() throws Exception {
@@ -83,7 +82,7 @@ public class BatchDetailRoute extends BaseRouteBuilder {
                     String pageNo = exchange.getProperty(PAGE_NO, String.class);
                     String pageSize = exchange.getProperty("pageSize", String.class);
                     String tenantId = exchange.getProperty("tenantId", String.class);
-                    String url = operationsAppConfig.batchDetailUrl + "?batchId=" + batchId + "&pageNo=" + pageNo + "&pageSize=" + pageSize;
+                    String url = operationsAppProperties.batchDetailUrl() + "?batchId=" + batchId + "&pageNo=" + pageNo + "&pageSize=" + pageSize;
                     exchange.getIn().setHeader(Exchange.HTTP_URI, url);
                     exchange.getIn().setHeader("Platform-TenantId", tenantId);
                     logger.info("Calling operations-app batch detail: {} tenant: {}", url, tenantId);
